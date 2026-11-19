@@ -1,0 +1,86 @@
+# ============================================================
+# FILE: .github/workflows/ci.yml
+# #CI #GitHubActions — Menjalankan pemeriksaan otomatis setiap push.
+#
+# Ini "penjaga" proyek Anda. Setiap kali Anda push ke GitHub,
+# GitHub akan menyalakan mesin virtual, memasang Flutter, lalu:
+#   1. memeriksa gaya kode (analyze)
+#   2. menjalankan semua test di Dart VM
+#   3. menjalankan semua test di browser sungguhan (Chrome)
+#
+# Kalau ada yang gagal, GitHub menandai commit Anda dengan tanda ✗.
+# Ini mencegah kode rusak masuk ke branch utama.
+#
+# Biaya: gratis untuk repository publik.
+# ============================================================
+
+name: CI
+
+# #Trigger #Kapan — Kapan workflow ini dijalankan.
+on:
+  # Setiap push ke branch main.
+  push:
+    branches: [main]
+
+  # Setiap pull request yang menuju main.
+  pull_request:
+    branches: [main]
+
+  # Tombol "Run workflow" manual di tab Actions.
+  workflow_dispatch:
+
+jobs:
+  # #Job #Test — Satu pekerjaan: memeriksa & menguji kode.
+  test:
+    # #Runner — Mesin virtual yang dipakai. Ubuntu paling murah & cepat.
+    runs-on: ubuntu-latest
+
+    steps:
+      # #Step1 #Checkout — Ambil kode dari repository ke mesin virtual.
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      # #Step2 #Flutter — Pasang Flutter SDK.
+      #
+      # `channel: stable` = versi stabil terbaru.
+      # `cache: true` = simpan cache Flutter antar-run agar berikutnya
+      # jauh lebih cepat (dari ~2 menit menjadi ~20 detik).
+      - name: Pasang Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # #Step3 #Version — Catat versi Flutter yang dipakai.
+      # Berguna saat debugging kalau suatu hari test tiba-tiba gagal.
+      - name: Tampilkan versi
+        run: flutter --version
+
+      # #Step4 #PubGet — Unduh semua dependency dari pub.dev.
+      - name: Ambil dependency
+        run: flutter pub get
+
+      # #Step5 #Analyze — Periksa error statis, kode tak terpakai,
+      # dan pelanggaran gaya penulisan.
+      - name: Periksa kode (analyze)
+        run: flutter analyze
+
+      # #Step6 #TestVM — Jalankan semua test di Dart VM.
+      # Ini yang paling cepat dan paling sering menangkap bug logika.
+      - name: Jalankan test (Dart VM)
+        run: flutter test
+
+      # #Step7 #TestChrome — Jalankan test di browser sungguhan.
+      #
+      # PENTING: langkah inilah yang menangkap bug khusus web
+      # (misalnya soal presisi DateTime yang dijelaskan di README).
+      # Tanpa langkah ini, bug tersebut hanya ketahuan setelah
+      # pengguna melaporkannya.
+      - name: Jalankan test (Chrome)
+        run: flutter test --platform chrome
+
+      # #Step8 #BuildWeb — Pastikan aplikasi benar-benar bisa
+      # dikompilasi untuk web. Test bisa lolos tapi build gagal
+      # karena masalah tree-shaking atau aset.
+      - name: Build web
+        run: flutter build web --release
