@@ -1,0 +1,143 @@
+# ============================================================
+# FILE: .github/workflows/deploy.yml
+# #CI #Deploy #GitHubPages — Membangun aplikasi web dan menerbitkannya.
+#
+# Setiap kali Anda push ke branch main, GitHub akan:
+#   1. memasang Flutter
+#   2. membangun versi web (release)
+#   3. mengunggah hasilnya ke GitHub Pages
+#
+# Hasil akhir: aplikasi Anda bisa dibuka siapa saja lewat URL publik,
+# tanpa perlu memasang apa pun.
+#
+# CATATAN PENTING: workflow ini TERPISAH dari ci.yml.
+#   ci.yml     -> memeriksa & menguji (tidak menerbitkan apa pun)
+#   deploy.yml -> menerbitkan (hanya berjalan kalau build berhasil)
+#
+# Memisahkannya penting: kalau digabung, aplikasi bisa terbit
+# walaupun test-nya gagal.
+# ============================================================
+
+name: Deploy ke GitHub Pages
+
+# #Trigger #Kapan
+on:
+  push:
+    branches: [main]
+
+  # Tombol "Run workflow" manual di tab Actions.
+  workflow_dispatch:
+
+# #Permission #Izin — Workflow ini butuh izin menulis ke Pages.
+#
+# Tanpa blok ini, langkah deploy akan gagal dengan pesan
+# "Resource not accessible by integration".
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# #Concurrency — Kalau Anda push dua kali beruntun, jalankan yang
+# terbaru saja dan batalkan yang sedang berjalan.
+#
+# `cancel-in-progress: false` dipakai (bukan true) karena deploy yang
+# sedang berjalan sebaiknya diselesaikan dulu — membatalkannya di
+# tengah jalan bisa meninggalkan situs dalam keadaan setengah jadi.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # #Job1 #Build — Menyiapkan file yang akan diterbitkan.
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      - name: Pasang Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Ambil dependency
+        run: flutter pub get
+
+      # #Step #BuildWeb — Membangun versi web.
+      #
+      # ============ JEBAKAN #1: --base-href ============
+      #
+      # GitHub Pages untuk repository biasa menyajikan situs di
+      # sub-folder, BUKAN di akar domain:
+      #
+      #   https://USERNAME.github.io/catatan-harian/
+      #                                  ^^^^^^^^^^^^^^
+      #
+      # Tanpa --base-href, Flutter mengira aplikasi ada di "/",
+      # sehingga ia mencari file di:
+      #
+      #   https://USERNAME.github.io/main.dart.js        <- SALAH, 404
+      #
+      # Dengan --base-href yang benar, ia mencari di:
+      #
+      #   https://USERNAME.github.io/catatan-harian/main.dart.js  <- BENAR
+      #
+      # Gejalanya kalau lupa: halaman kosong putih, dan di console
+      # browser muncul banyak error 404. Ini penyebab paling umum
+      # aplikasi Flutter "gagal deploy" ke GitHub Pages.
+      #
+      # Nilai ini HARUS sama dengan nama repository Anda.
+      # Kalau nanti Anda mengganti nama repo, ubah juga baris ini.
+      - name: Build web
+        run: flutter build web --release --base-href /catatan-harian/
+
+      # #Step #NoJekyll — Membuat file .nojekyll kosong.
+      #
+      # ============ JEBAKAN #2: Jekyll ============
+      #
+      # GitHub Pages menjalankan Jekyll (generator situs statis) secara
+      # default. Jekyll MENGABAIKAN file dan folder yang namanya diawali
+      # garis bawah, karena itu dianggap file internalnya.
+      #
+      # Flutter menghasilkan beberapa file seperti itu. Kalau diabaikan,
+      # aplikasi akan gagal memuat sebagian aset.
+      #
+      # File .nojekyll (kosong, tanpa isi) memberi tahu GitHub:
+      # "jangan jalankan Jekyll, sajikan file apa adanya".
+      #
+      # `touch` = membuat file kosong.
+      - name: Matikan Jekyll
+        run: touch build/web/.nojekyll
+
+      # #Step #Upload — Menyerahkan folder build/web ke GitHub Pages.
+      #
+      # `path` menunjuk folder hasil build. Action ini mengemasnya
+      # menjadi artefak yang siap diterbitkan.
+      - name: Unggah artefak
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  # #Job2 #Deploy — Menerbitkan artefak ke GitHub Pages.
+  deploy:
+    # #Needs — Job ini hanya berjalan SETELAH job build berhasil.
+    # Kalau build gagal, deploy tidak akan dicoba sama sekali.
+    needs: build
+
+    # #Environment — Menandai ini sebagai lingkungan "github-pages".
+    # GitHub memakai ini untuk mencatat riwayat deployment dan
+    # menampilkan URL situs Anda di halaman repo.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Terbitkan ke GitHub Pages
+        # `id: deployment` memberi nama pada langkah ini, supaya
+        # `steps.deployment.outputs.page_url` di atas bisa membacanya.
+        id: deployment
+        uses: actions/deploy-pages@v4
