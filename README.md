@@ -1,5 +1,7 @@
 # Catatan Harian
 
+[![CI](https://github.com/Athakasi/catatan-harian/actions/workflows/ci.yml/badge.svg)](https://github.com/Athakasi/catatan-harian/actions/workflows/ci.yml)
+
 Aplikasi catatan sederhana yang berjalan di **Android** dan **Web** dari satu basis kode Flutter.
 Dibuat sebagai proyek belajar Dart/Flutter untuk developer yang sudah mengenal PHP, JavaScript, dan OOP.
 
