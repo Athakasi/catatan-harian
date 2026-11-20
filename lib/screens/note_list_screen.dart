@@ -76,6 +76,72 @@ class _NoteListScreenState extends State<NoteListScreen> {
   // `String?` artinya boleh kosong (null = tidak ada error).
   String? _pesanError;
 
+  // ============================================================
+  // STATE PENCARIAN
+  // ============================================================
+
+  // #Properti #SedangMencari — Apakah mode pencarian aktif.
+  //
+  // Mode ini mengubah tampilan AppBar: judul biasa berganti menjadi
+  // kotak pencarian. Menyimpan status "mode" seperti ini adalah pola
+  // yang sangat umum di Flutter.
+  bool _sedangMencari = false;
+
+  // #Properti #ControllerPencarian — Pengendali isi kotak pencarian.
+  //
+  // Sama seperti di form (Langkah 6), controller memegang teks yang
+  // diketik dan memberi kita akses ke isinya lewat `.text`.
+  //
+  // Dibuat `late final` karena harus di-dispose di dispose().
+  late final TextEditingController _controllerPencarian;
+
+  // #Properti #KataKunci — Teks pencarian yang sedang aktif.
+  //
+  // Kenapa disimpan terpisah dari `_controllerPencarian.text`?
+  // Karena kita hanya ingin MENYARING daftar saat pengguna mengetik,
+  // dan menyimpan salinannya di state membuat `build()` tidak perlu
+  // membaca controller setiap kali.
+  String _kataKunci = '';
+
+  // #Getter #DaftarTampil — Daftar yang BENAR-BENAR ditampilkan.
+  //
+  // Inilah inti fitur pencarian: satu tempat yang memutuskan
+  // catatan mana yang lolos filter. Semua bagian lain (jumlah item,
+  // empty state, daftar kartu) memakai getter ini, bukan `_daftar`
+  // langsung. Dengan begitu, aturan penyaringan hanya ditulis SEKALI.
+  List<Note> get _daftarTampil {
+    // #Kondisi #TanpaPencarian — Tidak ada kata kunci = tampilkan semua.
+    // Tanpa pengecekan ini, `contains('')` selalu true, tapi lebih
+    // jelas dan lebih cepat kalau kita kembalikan list aslinya.
+    if (_kataKunci.isEmpty) {
+      return _daftar;
+    }
+
+    // #Langkah #Normalisasi — Ubah kata kunci ke huruf kecil.
+    //
+    // Kenapa? Agar "belanja", "Belanja", dan "BELANJA" dianggap sama.
+    // Pencarian yang membedakan huruf besar/kecil terasa "rusak"
+    // bagi pengguna.
+    final kunci = _kataKunci.toLowerCase();
+
+    // #Langkah #Saring — `where` menyaring, `toList` mengubah hasilnya
+    // kembali menjadi List.
+    //
+    // `where` mengembalikan Iterable (mirip generator di PHP/JS) —
+    // ia malas (lazy): baru benar-benar dihitung saat dipakai. Karena
+    // ListView butuh `.length`, kita perlu `toList()`.
+    return _daftar.where((note) {
+      // #Langkah #Cocokkan — Cari di judul DAN isi.
+      //
+      // Pengguna biasanya mengingat kata kunci dari salah satunya,
+      // jadi mencari di keduanya jauh lebih berguna daripada hanya judul.
+      final judul = note.judul.toLowerCase();
+      final isi = note.isi.toLowerCase();
+
+      return judul.contains(kunci) || isi.contains(kunci);
+    }).toList();
+  }
+
   // #Method #InitState — Dipanggil SEKALI saat halaman pertama kali dibuat.
   //
   // Di sini kita mulai mengambil data. Perhatikan: kita TIDAK boleh
@@ -89,8 +155,65 @@ class _NoteListScreenState extends State<NoteListScreen> {
     // #Langkah #SiapkanStorage — Pakai yang disuntikkan, atau buat baru.
     _storage = widget.storage ?? NoteStorage();
 
+    // #Langkah #SiapkanController — Buat pengendali kotak pencarian.
+    _controllerPencarian = TextEditingController();
+
     // #Langkah #MuatData — Mulai memuat. Tidak di-await, sengaja.
     _muat();
+  }
+
+  // #Method #Dispose — Membersihkan controller saat halaman ditutup.
+  //
+  // WAJIB. Tanpa ini terjadi memory leak, sama seperti di form (Langkah 6).
+  @override
+  void dispose() {
+    _controllerPencarian.dispose();
+    super.dispose();
+  }
+
+  // #Method #BukaPencarian — Mengaktifkan mode pencarian.
+  void _bukaPencarian() {
+    setState(() {
+      _sedangMencari = true;
+    });
+
+    // #Langkah #Fokus — Pindahkan fokus keyboard ke kotak pencarian
+    // agar pengguna bisa langsung mengetik tanpa menyentuh kotak dulu.
+    //
+    // `Future.microtask` menunda perintah ini sampai Flutter selesai
+    // menggambar ulang AppBar. Kalau dipanggil langsung, widget
+    // kotak pencariannya belum ada sehingga fokus akan gagal.
+    Future.microtask(() {
+      if (!mounted) return;
+      _fokusPencarian.requestFocus();
+    });
+  }
+
+  // #Method #TutupPencarian — Mematikan mode pencarian dan mengosongkan filter.
+  void _tutupPencarian() {
+    setState(() {
+      _sedangMencari = false;
+      _kataKunci = '';
+      _controllerPencarian.clear();
+    });
+
+    // #Langkah #TutupKeyboard — Sembunyikan keyboard di HP.
+    FocusScope.of(context).unfocus();
+  }
+
+  // #Properti #FokusPencarian — Pengendali fokus untuk kotak pencarian.
+  final _fokusPencarian = FocusNode();
+
+  // #Method #KataKunciBerubah — Dipanggil setiap kali pengguna mengetik.
+  void _kataKunciBerubah(String nilai) {
+    // #Langkah #SetState — Perbarui state agar daftar disaring ulang.
+    //
+    // Setiap ketikan memicu build() ulang. Untuk daftar catatan
+    // berukuran wajar ini sangat cepat, jadi tidak perlu optimasi
+    // tambahan seperti debounce.
+    setState(() {
+      _kataKunci = nilai;
+    });
   }
 
   // #Method #Muat — Mengambil daftar catatan dari penyimpanan.
@@ -142,19 +265,104 @@ class _NoteListScreenState extends State<NoteListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       // #Widget #AppBar — Bilah judul atas.
+      //
+      // Perhatikan: AppBar ini BERUBAH BENTUK tergantung `_sedangMencari`.
+      // Saat pencarian aktif, judul diganti kotak input dan tombol
+      // di kanan berganti menjadi tombol tutup. Ini pola "mode" yang
+      // sangat umum di aplikasi Android.
       appBar: AppBar(
-        title: const Text('Catatan Harian'),
         backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+
+        // #Kondisi #ModeMencari — Tampilan AppBar berbeda per mode.
+        title: _sedangMencari
+            // #Widget #TextField #Pencarian — Kotak input di dalam AppBar.
+            ? TextField(
+                controller: _controllerPencarian,
+                focusNode: _fokusPencarian,
+
+                // #Properti #OnChanged — Dipanggil setiap ketikan.
+                onChanged: _kataKunciBerubah,
+
+                // #Properti #Autofocus — Langsung siap menerima ketikan.
+                autofocus: true,
+
+                // #Properti #TextInputAction — Tombol "cari" di keyboard.
+                textInputAction: TextInputAction.search,
+
+                // #Properti #Decoration — Tanpa garis bawah, agar
+                // menyatu dengan AppBar.
+                decoration: const InputDecoration(
+                  hintText: 'Cari judul atau isi catatan...',
+                  border: InputBorder.none,
+                ),
+
+                // #Properti #Style — Warna teks mengikuti tema.
+                style: Theme.of(context).textTheme.titleMedium,
+              )
+            // #Widget #Text #JudulBiasa — Mode normal.
+            : const Text('Catatan Harian'),
+
+        // #Properti #Leading — Tombol di sisi KIRI AppBar.
+        //
+        // Saat mencari, tampilkan panah kembali untuk keluar dari
+        // mode pencarian.
+        leading: _sedangMencari
+            ? IconButton(
+                onPressed: _tutupPencarian,
+                tooltip: 'Tutup pencarian',
+                icon: const Icon(Icons.arrow_back),
+              )
+            : null,
 
         // #Properti #Actions — Tombol tambahan di kanan AppBar.
         actions: [
-          // #Widget #IconButton #MuatUlang — Berguna saat pengembangan
-          // dan untuk pengguna yang ingin memuat ulang data.
-          IconButton(
-            onPressed: _sedangMemuat ? null : _muat,
-            tooltip: 'Muat ulang',
-            icon: const Icon(Icons.refresh),
-          ),
+          // #Kondisi #TombolKanan — Berbeda per mode.
+          if (_sedangMencari)
+            // #Tombol #Bersihkan — Hanya muncul kalau ada teks.
+            //
+            // `ValueListenableBuilder` mendengarkan perubahan pada
+            // controller tanpa perlu setState tambahan. Ia menggambar
+            // ulang HANYA bagian ini, bukan seluruh halaman.
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _controllerPencarian,
+              builder: (context, nilai, _) {
+                // #Kondisi #AdaTeks — Sembunyikan tombol saat kotak kosong.
+                if (nilai.text.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+
+                return IconButton(
+                  onPressed: () {
+                    _controllerPencarian.clear();
+                    _kataKunciBerubah('');
+                    _fokusPencarian.requestFocus();
+                  },
+                  tooltip: 'Bersihkan pencarian',
+                  icon: const Icon(Icons.close),
+                );
+              },
+            )
+          else ...[
+            // #Tombol #Cari — Membuka mode pencarian.
+            //
+            // Dinonaktifkan saat data masih dimuat atau kosong:
+            // tidak ada gunanya mencari di daftar kosong.
+            IconButton(
+              onPressed: (_sedangMemuat || _daftar.isEmpty)
+                  ? null
+                  : _bukaPencarian,
+              tooltip: 'Cari catatan',
+              icon: const Icon(Icons.search),
+            ),
+
+            // #Tombol #MuatUlang — Berguna saat pengembangan
+            // dan untuk pengguna yang ingin memuat ulang data.
+            IconButton(
+              onPressed: _sedangMemuat ? null : _muat,
+              tooltip: 'Muat ulang',
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
         ],
       ),
 
@@ -190,12 +398,76 @@ class _NoteListScreenState extends State<NoteListScreen> {
     }
 
     // #Kondisi3 #Kosong — Tidak ada catatan sama sekali.
+    //
+    // PENTING: yang dicek adalah `_daftar` (data asli), BUKAN
+    // `_daftarTampil`. Alasannya: kalau pengguna sedang mencari dan
+    // tidak ada hasil, kita tidak ingin menampilkan "Belum ada catatan"
+    // — itu menyesatkan, seolah semua catatannya hilang.
     if (_daftar.isEmpty) {
       return _bangunTampilanKosong();
     }
 
-    // #Kondisi4 #AdaData — Tampilkan daftarnya.
+    // #Kondisi4 #TidakAdaHasil — Ada catatan, tapi tidak ada yang cocok.
+    if (_daftarTampil.isEmpty) {
+      return _bangunTampilanTidakDitemukan();
+    }
+
+    // #Kondisi5 #AdaData — Tampilkan daftarnya.
     return _bangunDaftar();
+  }
+
+  // #Method #BangunTampilanTidakDitemukan — Hasil pencarian kosong.
+  //
+  // Dibedakan dari empty state biasa. Kalau digabung, pengguna akan
+  // bingung: "catatan saya hilang?" padahal hanya tidak cocok dengan
+  // kata kunci. Pesan yang tepat + tombol bersihkan jauh lebih menolong.
+  Widget _bangunTampilanTidakDitemukan() {
+    final warna = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 72,
+              color: warna.onSurfaceVariant.withValues(alpha: 0.6),
+            ),
+            const SizedBox(height: 16),
+
+            Text(
+              'Tidak ada hasil',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+
+            // #Widget #Text #KataKunci — Tampilkan apa yang dicari,
+            // supaya pengguna sadar mungkin ada salah ketik.
+            Text(
+              'Tidak ada catatan yang cocok dengan "$_kataKunci".',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: warna.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // #Widget #OutlinedButton — Jalan keluar yang jelas.
+            OutlinedButton.icon(
+              onPressed: () {
+                _controllerPencarian.clear();
+                _kataKunciBerubah('');
+                _fokusPencarian.requestFocus();
+              },
+              icon: const Icon(Icons.close),
+              label: const Text('Bersihkan pencarian'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // #Method #BangunTampilanKosong — "Empty state".
@@ -299,12 +571,16 @@ class _NoteListScreenState extends State<NoteListScreen> {
 
         // #Properti #ItemCount — Jumlah item. Flutter memakai ini untuk
         // tahu kapan daftar berakhir.
-        itemCount: _daftar.length,
+        //
+        // Memakai `_daftarTampil` (hasil saringan), bukan `_daftar`.
+        itemCount: _daftarTampil.length,
 
         // #Properti #ItemBuilder — Fungsi yang dipanggil untuk SETIAP item.
         // Parameter `index` adalah posisi item (0, 1, 2, ...).
         itemBuilder: (context, index) {
-          final catatan = _daftar[index];
+          // #Langkah #AmbilItem — Ambil dari daftar yang sudah disaring,
+          // supaya indeksnya cocok dengan yang digambar.
+          final catatan = _daftarTampil[index];
 
           // #Widget #NoteCard — Kartu yang kita buat di widgets/note_card.dart.
           //
