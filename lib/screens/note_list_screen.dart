@@ -41,10 +41,16 @@ class NoteListScreen extends StatefulWidget {
   // palsu (in-memory) agar test tidak menyentuh storage asli.
   //
   // Pola ini sama dengan yang kita pakai di NoteStorage (Langkah 4).
-  const NoteListScreen({super.key, this.storage});
+  const NoteListScreen({super.key, this.storage, this.onBukaPengaturan});
 
   // #Properti #Storage — Penyimpanan yang dipakai halaman ini.
   final NoteStorage? storage;
+
+  // #Properti #OnBukaPengaturan — Aksi membuka halaman pengaturan.
+  //
+  // Dikirim dari app.dart. Dibuat opsional (boleh null) supaya
+  // halaman ini tetap bisa dipakai di test tanpa pengaturan.
+  final VoidCallback? onBukaPengaturan;
 
   // #Method #CreateState — Wajib ada di setiap StatefulWidget.
   // Ia menghubungkan widget (konfigurasi) dengan State (data + logika).
@@ -362,6 +368,17 @@ class _NoteListScreenState extends State<NoteListScreen> {
               tooltip: 'Muat ulang',
               icon: const Icon(Icons.refresh),
             ),
+
+            // #Tombol #Pengaturan — Membuka halaman pengaturan tema.
+            //
+            // Hanya ditampilkan kalau callback-nya tersedia, supaya
+            // test lama yang tidak mengirim callback tetap berjalan.
+            if (widget.onBukaPengaturan != null)
+              IconButton(
+                onPressed: widget.onBukaPengaturan,
+                tooltip: 'Pengaturan',
+                icon: const Icon(Icons.settings),
+              ),
           ],
         ],
       ),
